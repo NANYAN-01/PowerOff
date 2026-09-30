@@ -5,6 +5,12 @@
 
 ![应用图标](app_icon.ico)
 
+## 界面预览
+
+| 计划列表 | 临期倒计时状态 |
+| --- | --- |
+| ![计划列表](docs/screenshot-plans.png) | ![倒计时](docs/screenshot-countdown.png) |
+
 ## 功能特点
 
 - 🔌 **六种电源动作**：关机 / 重启 / 注销 / 睡眠 / 休眠 / 锁定
