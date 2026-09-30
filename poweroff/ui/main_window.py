@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 
 from PyQt5.QtCore import QDate, QDateTime, QSettings, Qt, QTime, QTimer
-from PyQt5.QtGui import QFont, QIcon
+from PyQt5.QtGui import QFont, QFontMetrics, QIcon
 from PyQt5.QtWidgets import (QApplication, QButtonGroup, QCheckBox,
                              QDateEdit, QGridLayout, QGroupBox, QHBoxLayout,
                              QLabel, QMenu, QMessageBox, QPushButton,
@@ -49,6 +49,8 @@ class PowerOffWidget(QWidget):
         self.setWindowIcon(QIcon(resource_path("app_icon.ico")))
         self.setFixedSize(580, 520)
         self.setFont(QFont("SimHei", 12))
+        # 1.5 行行距作为各区块统一间隔
+        self._gap = round(QFontMetrics(self.font()).lineSpacing() * 1.5)
 
         self.setStyleSheet("""
             QWidget {
@@ -138,7 +140,7 @@ class PowerOffWidget(QWidget):
 
         mainLayout = QVBoxLayout(self)
         mainLayout.setContentsMargins(20, 20, 20, 20)
-        mainLayout.setSpacing(14)
+        mainLayout.setSpacing(self._gap)
 
         topLayout = QHBoxLayout()
         self.autoRunChk = QCheckBox("开机自启")
@@ -156,7 +158,7 @@ class PowerOffWidget(QWidget):
 
         timeGroup = QGroupBox("设置关机时间")
         timeLayout = QVBoxLayout()
-        timeLayout.setSpacing(15)
+        timeLayout.setSpacing(self._gap)
 
         methodLayout = QHBoxLayout()
         methodLayout.addWidget(QLabel("计时方式："))
@@ -203,7 +205,7 @@ class PowerOffWidget(QWidget):
         self.timeEdit.setMinimumWidth(150)
         self.timeEdit.setMinimumHeight(42)
         dtGrid.addWidget(self.timeEdit, 1, 1)
-        dtGrid.setVerticalSpacing(14)
+        dtGrid.setVerticalSpacing(self._gap)
         dtGrid.setRowMinimumHeight(0, 42)
         dtGrid.setRowMinimumHeight(1, 42)
 
@@ -237,7 +239,7 @@ class PowerOffWidget(QWidget):
 
         optGroup = QGroupBox("设置关机选项")
         optLayout = QVBoxLayout()
-        optLayout.setSpacing(10)
+        optLayout.setSpacing(self._gap)
 
         actionRow1 = QHBoxLayout()
         actionRow1.setSpacing(20)
@@ -308,6 +310,11 @@ class PowerOffWidget(QWidget):
         self.update_input_mode()
         self.sync_controls()
         self.updateTime()
+
+        # 间隔放大后按最小高度自适应窗口，避免控件被压缩
+        needed = self.layout().minimumSize().height()
+        if needed > self.height():
+            self.setFixedSize(580, needed)
 
     def initTimers(self):
         self.timer = QTimer(self)
