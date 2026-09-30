@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 虚拟环境
+shutdown/
+venv/
+.venv/
+env/
+
+# PyInstaller 产物
+build/
+dist/
+
+# IDE
+.vscode/
+.idea/
+
+# 日志与临时文件
+*.log
+*.tmp
