@@ -31,3 +31,11 @@ def prefs(tmp_path, monkeypatch):
     settings = QSettings(str(tmp_path / "prefs.ini"), QSettings.IniFormat)
     monkeypatch.setattr(main_window, "_app_settings", lambda: settings)
     return settings
+
+
+@pytest.fixture(autouse=True)
+def stub_autosave(monkeypatch):
+    """UI 测试默认不真发按键，自动保存相关单测直接测 core.autosave。"""
+    monkeypatch.setattr(
+        main_window, "_run_autosave",
+        lambda: main_window.autosave.SaveReport())

@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup,
                              QSystemTrayIcon, QTableWidget, QTableWidgetItem,
                              QTimeEdit, QVBoxLayout, QWidget)
 
-from poweroff.core import autostart, planner
+from poweroff.core import autosave, autostart, planner
 from poweroff.core.power import (Backend, PowerAction,
                                  RC_NOTHING_TO_CANCEL, cancel,
                                  choose_backend, execute_immediate,
@@ -42,6 +42,14 @@ REPEAT_MODE_LABELS = {
 
 def _app_settings() -> QSettings:
     return QSettings("PowerOff", "PowerOff")
+
+
+def _run_autosave():
+    """关机前自动保存（独立函数便于测试打桩）。"""
+    try:
+        return autosave.save_all_documents()
+    except Exception:
+        return autosave.SaveReport()
 
 
 class PowerOffWidget(QWidget):
@@ -196,11 +204,17 @@ class PowerOffWidget(QWidget):
         self.autoRunChk.setChecked(autostart.is_enabled())
         self.topChk = QCheckBox("置顶")
         self.topChk.setChecked(False)
+        self.autosaveChk = QCheckBox("关机前自动保存")
+        self.autosaveChk.setChecked(True)
+        self.autosaveChk.setToolTip(
+            "关机/重启/注销前，对文档类窗口（Office/WPS/记事本/编辑器等）\n"
+            "逐个发送 Ctrl+S 保存，尽力避免文件丢失。")
         self.timeLabel = QLabel()
         self.timeLabel.setObjectName("currentTimeLabel")
 
         topLayout.addWidget(self.autoRunChk)
         topLayout.addWidget(self.topChk)
+        topLayout.addWidget(self.autosaveChk)
         topLayout.addSpacerItem(QSpacerItem(5, 5, QSizePolicy.Expanding, QSizePolicy.Minimum))
         topLayout.addWidget(self.timeLabel)
         mainLayout.addLayout(topLayout)
@@ -597,6 +611,8 @@ class PowerOffWidget(QWidget):
         if bool(settings.value("top", False, type=bool)):
             self.topChk.setChecked(True)
             self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+        self.autosaveChk.setChecked(
+            bool(settings.value("autosave", True, type=bool)))
 
     def save_prefs(self):
         settings = _app_settings()
@@ -605,6 +621,7 @@ class PowerOffWidget(QWidget):
         settings.setValue("action", self.current_action().value)
         settings.setValue("force", self.forceChk.isChecked())
         settings.setValue("top", self.topChk.isChecked())
+        settings.setValue("autosave", self.autosaveChk.isChecked())
 
     def requested_seconds(self):
         if self.specRadio.isChecked():
@@ -804,6 +821,14 @@ class PowerOffWidget(QWidget):
             self.refresh_plan_table()
             self.resize_to_fit()
 
+    def execute_with_autosave(self, action, force):
+        """执行电源动作前按开关先保存文档（仅关机/重启/注销会丢数据）。"""
+        needs_save = action in (PowerAction.SHUTDOWN, PowerAction.REBOOT,
+                                PowerAction.LOGOFF)
+        if needs_save and self.autosaveChk.isChecked():
+            _run_autosave()
+        return execute_immediate(action, force)
+
     def fire_plan(self, plan):
         try:
             action = PowerAction(plan.get("action"))
@@ -828,7 +853,7 @@ class PowerOffWidget(QWidget):
             planner.refresh_next_run(plan)
         save_plans(self.plans)
         self.refresh_plan_table()
-        result = execute_immediate(action, bool(plan.get("force")))
+        result = self.execute_with_autosave(action, bool(plan.get("force")))
         if not result.ok:
             QMessageBox.critical(self, "执行失败", result.hint)
 
@@ -842,7 +867,7 @@ class PowerOffWidget(QWidget):
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply != QMessageBox.Yes:
             return
-        result = execute_immediate(action, force)
+        result = self.execute_with_autosave(action, force)
         if not result.ok:
             QMessageBox.critical(self, "执行失败", result.hint)
 
@@ -869,7 +894,7 @@ class PowerOffWidget(QWidget):
         self.plan = None
         self.persist_plan()
         self.refresh_plan_table()
-        result = execute_immediate(plan["action"], plan["force"])
+        result = self.execute_with_autosave(plan["action"], plan["force"])
         if not result.ok:
             QMessageBox.critical(self, "执行失败", result.hint)
 
