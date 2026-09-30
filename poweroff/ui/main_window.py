@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import time
 
-from PyQt5.QtCore import QDate, QDateTime, Qt, QTime, QTimer
+from PyQt5.QtCore import QDate, QDateTime, QSettings, Qt, QTime, QTimer
 from PyQt5.QtGui import QFont, QIcon
-from PyQt5.QtWidgets import (QApplication, QCheckBox, QDateEdit, QGridLayout,
-                             QGroupBox, QHBoxLayout, QLabel, QMenu,
-                             QMessageBox, QPushButton, QRadioButton,
-                             QSizePolicy, QSpacerItem, QSpinBox,
+from PyQt5.QtWidgets import (QApplication, QButtonGroup, QCheckBox,
+                             QDateEdit, QGridLayout, QGroupBox, QHBoxLayout,
+                             QLabel, QMenu, QMessageBox, QPushButton,
+                             QRadioButton, QSizePolicy, QSpacerItem, QSpinBox,
                              QStackedWidget, QSystemTrayIcon, QTimeEdit,
                              QVBoxLayout, QWidget)
 
@@ -16,13 +16,18 @@ from poweroff.core import autostart
 from poweroff.core.power import (Backend, PowerAction,
                                  RC_NOTHING_TO_CANCEL, cancel,
                                  choose_backend, execute_immediate,
-                                 schedule_system)
+                                 hibernation_enabled, schedule_system)
 from poweroff.core.state import (PlanState, clear_state, load_state,
                                  save_state)
 from poweroff.core.util import format_duration, resource_path
 
 BLINK_INTERVAL_MS = 500
 NOTIFY_WINDOW_SECONDS = 60
+PRESET_MINUTES = (5, 10, 30, 60)
+
+
+def _app_settings() -> QSettings:
+    return QSettings("PowerOff", "PowerOff")
 
 
 class PowerOffWidget(QWidget):
@@ -106,11 +111,24 @@ class PowerOffWidget(QWidget):
             QPushButton#cancelBtn:hover {
                 background: #e0a800;
             }
-            QDateEdit, QTimeEdit, QSpinBox {
+            QPushButton#presetBtn {
+                font-size: 11pt;
+                padding: 4px 8px;
+                background: #6c757d;
+            }
+            QPushButton#presetBtn:hover {
+                background: #565e64;
+            }
+            QDateEdit, QTimeEdit {
                 padding: 6px;
                 border: 1px solid #ced4da;
                 border-radius: 4px;
                 width: 300px;
+            }
+            QSpinBox {
+                padding: 6px;
+                border: 1px solid #ced4da;
+                border-radius: 4px;
             }
             QCheckBox, QRadioButton {
                 spacing: 8px;
@@ -120,7 +138,7 @@ class PowerOffWidget(QWidget):
 
         mainLayout = QVBoxLayout(self)
         mainLayout.setContentsMargins(20, 20, 20, 20)
-        mainLayout.setSpacing(20)
+        mainLayout.setSpacing(14)
 
         topLayout = QHBoxLayout()
         self.autoRunChk = QCheckBox("开机自启")
@@ -150,6 +168,19 @@ class PowerOffWidget(QWidget):
         self.countRadio = QRadioButton("递减方式")
         methodLayout.addWidget(self.countRadio)
         timeLayout.addLayout(methodLayout)
+
+        presetLayout = QHBoxLayout()
+        presetLayout.setSpacing(10)
+        presetLayout.addWidget(QLabel("快捷倒计时："))
+        self.presetButtons = []
+        for minutes in PRESET_MINUTES:
+            button = QPushButton("{}分".format(minutes))
+            button.setObjectName("presetBtn")
+            button.clicked.connect(lambda _checked=False, m=minutes: self.apply_preset(m))
+            presetLayout.addWidget(button)
+            self.presetButtons.append(button)
+        presetLayout.addStretch()
+        timeLayout.addLayout(presetLayout)
 
         self.stackedWidget = QStackedWidget()
 
@@ -185,10 +216,13 @@ class PowerOffWidget(QWidget):
         countLayout.setAlignment(Qt.AlignLeft)
         self.hourSpin = QSpinBox()
         self.hourSpin.setRange(0, 99)
+        self.hourSpin.setFixedWidth(90)
         self.minSpin = QSpinBox()
         self.minSpin.setRange(0, 59)
+        self.minSpin.setFixedWidth(90)
         self.secSpin = QSpinBox()
         self.secSpin.setRange(0, 59)
+        self.secSpin.setFixedWidth(90)
         countLayout.addWidget(self.hourSpin)
         countLayout.addWidget(QLabel("小时"))
         countLayout.addSpacing(15)
@@ -206,25 +240,43 @@ class PowerOffWidget(QWidget):
         mainLayout.addWidget(timeGroup)
 
         optGroup = QGroupBox("设置关机选项")
-        optLayout = QHBoxLayout()
-        optLayout.setSpacing(20)
+        optLayout = QVBoxLayout()
+        optLayout.setSpacing(10)
+
+        actionRow1 = QHBoxLayout()
+        actionRow1.setSpacing(20)
         self.shutRadio = QRadioButton("关机")
         self.shutRadio.setChecked(True)
         self.logRadio = QRadioButton("注销")
         self.rebootRadio = QRadioButton("重启")
         self.forceChk = QCheckBox("强制")
         self.forceChk.setChecked(True)
-        optLayout.addStretch()
-        optLayout.addWidget(self.shutRadio)
-        optLayout.addStretch()
-        optLayout.addWidget(self.logRadio)
-        optLayout.addStretch()
-        optLayout.addWidget(self.rebootRadio)
-        optLayout.addStretch()
-        optLayout.addWidget(self.forceChk)
-        optLayout.addStretch()
+        for widget in (self.shutRadio, self.logRadio, self.rebootRadio):
+            actionRow1.addStretch()
+            actionRow1.addWidget(widget)
+        actionRow1.addStretch()
+        actionRow1.addWidget(self.forceChk)
+        actionRow1.addStretch()
+
+        actionRow2 = QHBoxLayout()
+        actionRow2.setSpacing(20)
+        self.sleepRadio = QRadioButton("睡眠")
+        self.hibernateRadio = QRadioButton("休眠")
+        self.lockRadio = QRadioButton("锁定")
+        for widget in (self.sleepRadio, self.hibernateRadio, self.lockRadio):
+            actionRow2.addStretch()
+            actionRow2.addWidget(widget)
+        actionRow2.addStretch()
+
+        optLayout.addLayout(actionRow1)
+        optLayout.addLayout(actionRow2)
         optGroup.setLayout(optLayout)
         mainLayout.addWidget(optGroup)
+
+        self.actionGroup = QButtonGroup(self)
+        for radio in (self.shutRadio, self.logRadio, self.rebootRadio,
+                      self.sleepRadio, self.hibernateRadio, self.lockRadio):
+            self.actionGroup.addButton(radio)
 
         btnLayout = QHBoxLayout()
         btnLayout.setSpacing(0)
@@ -246,13 +298,15 @@ class PowerOffWidget(QWidget):
 
         mainLayout.addLayout(btnLayout)
 
+        self.load_prefs()
+
         self.okBtn.clicked.connect(self.handle_ok)
         self.cancelBtn.clicked.connect(self.cancel_shutdown)
         self.nowBtn.clicked.connect(self.handle_shutdown_now)
         self.specRadio.toggled.connect(self.update_input_mode)
         self.topChk.stateChanged.connect(self.toggle_top)
         self.autoRunChk.toggled.connect(self.set_autostart)
-        for radio in (self.shutRadio, self.logRadio, self.rebootRadio):
+        for radio in self.actionGroup.buttons():
             radio.toggled.connect(self.sync_controls)
 
         self.update_input_mode()
@@ -311,11 +365,61 @@ class PowerOffWidget(QWidget):
 
     # ----------------------------------------------------------- 计划逻辑
     def current_action(self):
-        if self.shutRadio.isChecked():
-            return PowerAction.SHUTDOWN
-        if self.rebootRadio.isChecked():
-            return PowerAction.REBOOT
-        return PowerAction.LOGOFF
+        checked = self.actionGroup.checkedButton()
+        mapping = {
+            self.shutRadio: PowerAction.SHUTDOWN,
+            self.rebootRadio: PowerAction.REBOOT,
+            self.logRadio: PowerAction.LOGOFF,
+            self.sleepRadio: PowerAction.SLEEP,
+            self.hibernateRadio: PowerAction.HIBERNATE,
+            self.lockRadio: PowerAction.LOCK,
+        }
+        return mapping.get(checked, PowerAction.SHUTDOWN)
+
+    def apply_preset(self, minutes):
+        self.countRadio.setChecked(True)
+        self.hourSpin.setValue(minutes // 60)
+        self.minSpin.setValue(minutes % 60)
+        self.secSpin.setValue(0)
+
+    def confirm_action(self, action):
+        """睡眠在休眠启用时会退化为休眠，先向用户确认。"""
+        if action is not PowerAction.SLEEP:
+            return True
+        if hibernation_enabled() is not True:
+            return True
+        reply = QMessageBox.question(
+            self, "睡眠",
+            "检测到系统启用了休眠，此睡眠操作可能实际进入休眠。仍要继续？",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        return reply == QMessageBox.Yes
+
+    def load_prefs(self):
+        settings = _app_settings()
+        mode = settings.value("mode", "spec")
+        self.countRadio.setChecked(mode == "count")
+        self.specRadio.setChecked(mode != "count")
+        action_value = settings.value("action", PowerAction.SHUTDOWN.value)
+        mapping = {
+            PowerAction.SHUTDOWN.value: self.shutRadio,
+            PowerAction.REBOOT.value: self.rebootRadio,
+            PowerAction.LOGOFF.value: self.logRadio,
+            PowerAction.SLEEP.value: self.sleepRadio,
+            PowerAction.HIBERNATE.value: self.hibernateRadio,
+            PowerAction.LOCK.value: self.lockRadio,
+        }
+        mapping.get(action_value, self.shutRadio).setChecked(True)
+        self.forceChk.setChecked(bool(settings.value("force", True, type=bool)))
+        if bool(settings.value("top", False, type=bool)):
+            self.topChk.setChecked(True)
+            self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+
+    def save_prefs(self):
+        settings = _app_settings()
+        settings.setValue("mode", "spec" if self.specRadio.isChecked() else "count")
+        settings.setValue("action", self.current_action().value)
+        settings.setValue("force", self.forceChk.isChecked())
+        settings.setValue("top", self.topChk.isChecked())
 
     def requested_seconds(self):
         if self.specRadio.isChecked():
@@ -342,6 +446,8 @@ class PowerOffWidget(QWidget):
             return
         seconds, deadline_text = requested
         action = self.current_action()
+        if not self.confirm_action(action):
+            return
         force = self.forceChk.isChecked()
         backend = choose_backend(action, force)
 
@@ -369,6 +475,8 @@ class PowerOffWidget(QWidget):
 
     def handle_shutdown_now(self):
         action = self.current_action()
+        if not self.confirm_action(action):
+            return
         force = self.forceChk.isChecked()
         reply = QMessageBox.question(
             self, "确认操作", "您确定要立即{}吗？".format(action.label),
@@ -514,6 +622,7 @@ class PowerOffWidget(QWidget):
             self.bring_to_front()
 
     def closeEvent(self, event):
+        self.save_prefs()
         if self.tray is None:
             event.accept()
             return
@@ -526,6 +635,7 @@ class PowerOffWidget(QWidget):
                 QSystemTrayIcon.Information, 3000)
 
     def quit_app(self):
+        self.save_prefs()
         if self.plan is not None and self.plan["backend"] is Backend.LOCAL:
             reply = QMessageBox.question(
                 self, "退出",

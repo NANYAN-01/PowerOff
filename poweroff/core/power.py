@@ -175,3 +175,22 @@ def execute_immediate(action: PowerAction, force: bool = False) -> CommandResult
 def cancel() -> CommandResult:
     """取消系统级关机计划（shutdown /a）。"""
     return run_command(["shutdown", "/a"])
+
+
+def hibernation_enabled():
+    """系统是否启用休眠（HKLM HibernateEnabled），未知时返回 None。
+
+    休眠启用时 rundll32 SetSuspendState 会进入休眠而非睡眠。
+    """
+    try:
+        import winreg
+    except ImportError:
+        return None
+    try:
+        with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r"SYSTEM\CurrentControlSet\Control\Power") as key:
+            value, _ = winreg.QueryValueEx(key, "HibernateEnabled")
+            return bool(value)
+    except OSError:
+        return None
