@@ -39,3 +39,9 @@ def stub_autosave(monkeypatch):
     monkeypatch.setattr(
         main_window, "_run_autosave",
         lambda: main_window.autosave.SaveReport())
+
+
+@pytest.fixture(autouse=True)
+def stub_toast(monkeypatch):
+    """UI 测试默认不真弹 Toast，通知相关单测直接测 core.notify。"""
+    monkeypatch.setattr(main_window, "_toast", lambda *a, **k: True)

@@ -148,3 +148,28 @@ def test_execute_with_autosave_gating(qapp, prefs, state_file):
         widget.autosaveChk.setChecked(False)
         widget.execute_with_autosave(PowerAction.SHUTDOWN, True)
         assert not save.called and immediate.call_count == 3
+
+
+def test_toast_on_add_and_delete(qapp, prefs, state_file):
+    widget = make_widget(qapp, prefs, state_file)
+    with patch.object(mw, "_toast") as toast:
+        add_plan(widget, "每天")
+        assert toast.called
+        title, msg = toast.call_args[0][:2]
+        assert title == "计划已添加"
+        assert "每天" in msg
+        widget.delete_plan(widget.plans[0]["id"])
+        assert toast.call_count == 2
+        assert toast.call_args[0][0] == "已删除计划"
+
+
+def test_execute_toast_before_autosave(qapp, prefs, state_file):
+    widget = make_widget(qapp, prefs, state_file)
+    widget.autosaveChk.setChecked(True)
+    with patch.object(mw, "_toast") as toast, \
+            patch.object(mw, "_run_autosave") as save, \
+            patch.object(mw, "execute_immediate") as immediate:
+        immediate.return_value = MagicMock(ok=True)
+        widget.execute_with_autosave(PowerAction.SHUTDOWN, True)
+        assert toast.called and save.called
+        assert toast.call_args[0][0] == "即将执行关机"

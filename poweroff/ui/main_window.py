@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup,
                              QSystemTrayIcon, QTableWidget, QTableWidgetItem,
                              QTimeEdit, QVBoxLayout, QWidget)
 
-from poweroff.core import autosave, autostart, planner
+from poweroff.core import autosave, autostart, notify, planner
 from poweroff.core.power import (Backend, PowerAction,
                                  RC_NOTHING_TO_CANCEL, cancel,
                                  choose_backend, execute_immediate,
@@ -50,6 +50,11 @@ def _run_autosave():
         return autosave.save_all_documents()
     except Exception:
         return autosave.SaveReport()
+
+
+def _toast(title, msg, sound=True):
+    """右下角 Toast 通知（独立函数便于测试打桩）。"""
+    return notify.toast(title, msg, sound)
 
 
 class PowerOffWidget(QWidget):
@@ -722,11 +727,9 @@ class PowerOffWidget(QWidget):
         self.resize_to_fit()
         next_text = time.strftime("%Y-%m-%d %H:%M",
                                   time.localtime(plan["next_run"]))
-        QMessageBox.information(
-            self, "计划已添加",
-            "已添加计划：\n\n{} 执行 {}。\n\n下次执行：{}\n"
-            "（重复计划由本程序执行，请保持程序运行，可最小化到托盘）".format(
-                planner.describe(plan), action.label, next_text))
+        _toast("计划已添加",
+               "{} 执行 {}，下次：{}".format(
+                   planner.describe(plan), action.label, next_text))
 
     # ------------------------------------------------------- 计划列表显示
     def refresh_plan_table(self):
@@ -800,10 +803,17 @@ class PowerOffWidget(QWidget):
                 break
 
     def delete_plan(self, plan_id):
+        rule = ""
+        for plan in self.plans:
+            if plan.get("id") == plan_id:
+                rule = planner.describe(plan)
+                break
         self.plans = [p for p in self.plans if p.get("id") != plan_id]
         save_plans(self.plans)
         self.refresh_plan_table()
         self.resize_to_fit()
+        if rule:
+            _toast("已删除计划", rule)
 
     # ------------------------------------------------------- 重复计划执行
     def tick_plans(self, now_ts):
@@ -826,6 +836,8 @@ class PowerOffWidget(QWidget):
         needs_save = action in (PowerAction.SHUTDOWN, PowerAction.REBOOT,
                                 PowerAction.LOGOFF)
         if needs_save and self.autosaveChk.isChecked():
+            _toast("即将执行{}".format(action.label),
+                   "正在自动保存打开的文档，随后执行{}…".format(action.label))
             _run_autosave()
         return execute_immediate(action, force)
 
@@ -974,6 +986,9 @@ class PowerOffWidget(QWidget):
             return
         self._notified = True
         action = self.plan["action"]
+        _toast("即将执行{}".format(action.label),
+               "距离执行还有不到 {} 秒，如需中止请点击“取消计划”。".format(
+                   NOTIFY_WINDOW_SECONDS))
         if self.tray is not None:
             self.tray.showMessage(
                 "即将执行{}".format(action.label),
