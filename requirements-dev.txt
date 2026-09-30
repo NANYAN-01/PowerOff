@@ -1,0 +1,8 @@
+# 开发/构建依赖（运行时仅需 requirements.txt）
+-r requirements.txt
+
+# 测试
+pytest>=8.0
+
+# 打包
+pyinstaller>=6.17
