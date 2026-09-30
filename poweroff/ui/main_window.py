@@ -10,8 +10,8 @@ from PyQt5.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup,
                              QDialogButtonBox, QGridLayout, QGroupBox,
                              QHBoxLayout, QHeaderView, QLabel, QMenu,
                              QMessageBox, QListWidget, QListWidgetItem,
-                             QPushButton, QRadioButton, QSizePolicy,
-                             QSpacerItem, QSpinBox, QStackedWidget,
+                             QPushButton, QRadioButton,
+                             QSpinBox, QStackedWidget,
                              QSystemTrayIcon, QTableWidget, QTableWidgetItem,
                              QTimeEdit, QVBoxLayout, QWidget)
 
@@ -79,6 +79,8 @@ class PowerOffWidget(QWidget):
         self.setFont(QFont("SimHei", 12))
         # 1.5 行行距作为各区块统一间隔
         self._gap = round(QFontMetrics(self.font()).lineSpacing() * 1.5)
+        # 组内子行间隔 0.7 行，控制窗口总高度
+        self._sub_gap = round(QFontMetrics(self.font()).lineSpacing() * 0.7)
 
         self.setStyleSheet("""
             QWidget {
@@ -220,13 +222,17 @@ class PowerOffWidget(QWidget):
         topLayout.addWidget(self.autoRunChk)
         topLayout.addWidget(self.topChk)
         topLayout.addWidget(self.autosaveChk)
-        topLayout.addSpacerItem(QSpacerItem(5, 5, QSizePolicy.Expanding, QSizePolicy.Minimum))
-        topLayout.addWidget(self.timeLabel)
+        topLayout.addStretch()
         mainLayout.addLayout(topLayout)
+
+        statusRow = QHBoxLayout()
+        statusRow.addStretch()
+        statusRow.addWidget(self.timeLabel)
+        mainLayout.addLayout(statusRow)
 
         timeGroup = QGroupBox("设置关机时间")
         timeLayout = QVBoxLayout()
-        timeLayout.setSpacing(self._gap)
+        timeLayout.setSpacing(self._sub_gap)
 
         methodLayout = QHBoxLayout()
         methodLayout.addWidget(QLabel("计时方式："))
@@ -256,7 +262,7 @@ class PowerOffWidget(QWidget):
 
         specTimeWidget = QWidget()
         dtGrid = QGridLayout(specTimeWidget)
-        dtGrid.setSpacing(10)
+        dtGrid.setHorizontalSpacing(self._sub_gap)
         dtGrid.setAlignment(Qt.AlignLeft)
 
         self.repeatLabel = QLabel("重 复：")
@@ -283,10 +289,10 @@ class PowerOffWidget(QWidget):
         self.timeEdit.setMinimumHeight(42)
         dtGrid.addWidget(self.timeEdit, 2, 1)
 
-        self.weekdayLabel = QLabel("星 期：")
-        dtGrid.addWidget(self.weekdayLabel, 3, 0, Qt.AlignRight)
+        self.weekdayLabel = QLabel("星期：")
         weekdayRow = QHBoxLayout()
-        weekdayRow.setSpacing(8)
+        weekdayRow.setContentsMargins(0, 0, 0, 0)
+        weekdayRow.setSpacing(4)
         self.weekdayChks = []
         for index, name in enumerate(planner.WEEKDAY_LABELS):
             chk = QCheckBox(name[1])  # 一 二 三 四 五 六 日
@@ -297,32 +303,33 @@ class PowerOffWidget(QWidget):
         weekdayRow.addStretch()
         self.weekdayWrap = QWidget()
         self.weekdayWrap.setLayout(weekdayRow)
-        dtGrid.addWidget(self.weekdayWrap, 3, 1, Qt.AlignLeft)
 
         self.datesLabel = QLabel("指定日：")
         dtGrid.addWidget(self.datesLabel, 4, 0, Qt.AlignTop | Qt.AlignRight)
         self.datesList = QListWidget()
         self.datesList.setMinimumWidth(300)
-        self.datesList.setFixedHeight(84)
-        dtGrid.addWidget(self.datesList, 4, 1)
-        datesBtnRow = QHBoxLayout()
-        datesBtnRow.setSpacing(10)
+        self.datesList.setFixedHeight(64)
         addDateBtn = QPushButton("＋添加日期")
         addDateBtn.setObjectName("presetBtn")
         delDateBtn = QPushButton("删除选中")
         delDateBtn.setObjectName("presetBtn")
         addDateBtn.clicked.connect(self.add_target_date)
         delDateBtn.clicked.connect(self.remove_target_date)
-        datesBtnRow.addWidget(addDateBtn)
-        datesBtnRow.addWidget(delDateBtn)
-        datesBtnRow.addStretch()
-        self.datesBtnWrap = QWidget()
-        self.datesBtnWrap.setLayout(datesBtnRow)
-        dtGrid.addWidget(self.datesBtnWrap, 5, 1, Qt.AlignLeft)
+        self.datesList.setMinimumWidth(190)
+        self.datesCell = QWidget()
+        cellLayout = QHBoxLayout(self.datesCell)
+        cellLayout.setContentsMargins(0, 0, 0, 0)
+        cellLayout.setSpacing(8)
+        cellLayout.addWidget(self.datesList)
+        datesBtnCol = QVBoxLayout()
+        datesBtnCol.setContentsMargins(0, 0, 0, 0)
+        datesBtnCol.setSpacing(6)
+        datesBtnCol.addWidget(addDateBtn)
+        datesBtnCol.addWidget(delDateBtn)
+        cellLayout.addLayout(datesBtnCol)
+        dtGrid.addWidget(self.datesCell, 4, 1)
 
-        dtGrid.setVerticalSpacing(self._gap)
-        dtGrid.setRowMinimumHeight(1, 42)
-        dtGrid.setRowMinimumHeight(2, 42)
+        dtGrid.setVerticalSpacing(self._sub_gap)
 
         countDownWidget = QWidget()
         countLayout = QHBoxLayout(countDownWidget)
@@ -349,12 +356,18 @@ class PowerOffWidget(QWidget):
         self.stackedWidget.addWidget(countDownWidget)
         timeLayout.addWidget(self.stackedWidget)
 
+        weekdayLayout = QHBoxLayout()
+        weekdayLayout.setSpacing(6)
+        weekdayLayout.addWidget(self.weekdayLabel)
+        weekdayLayout.addWidget(self.weekdayWrap)
+        timeLayout.addLayout(weekdayLayout)
+
         timeGroup.setLayout(timeLayout)
         mainLayout.addWidget(timeGroup)
 
         optGroup = QGroupBox("设置关机选项")
         optLayout = QVBoxLayout()
-        optLayout.setSpacing(self._gap)
+        optLayout.setSpacing(self._sub_gap)
 
         actionRow1 = QHBoxLayout()
         actionRow1.setSpacing(20)
@@ -401,12 +414,18 @@ class PowerOffWidget(QWidget):
         self.planTable.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.planTable.verticalHeader().setVisible(False)
         self.planTable.verticalHeader().setDefaultSectionSize(32)
+        self.planTable.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         header = self.planTable.horizontalHeader()
+        header.setMinimumSectionSize(48)
         header.setSectionResizeMode(0, QHeaderView.Stretch)
-        for column in (1, 2, 3, 4):
-            header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
-        self.planTable.setFixedHeight(128)
-        self.planTable.setMinimumWidth(500)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.Fixed)
+        header.setSectionResizeMode(4, QHeaderView.Fixed)
+        header.resizeSection(2, 158)  # 2026-12-31 23:59:59
+        header.resizeSection(3, 54)
+        header.resizeSection(4, 62)
+        self.planTable.setFixedHeight(100)
         planLayout.addWidget(self.planTable)
         planGroup.setLayout(planLayout)
         mainLayout.addWidget(planGroup)
@@ -519,9 +538,11 @@ class PowerOffWidget(QWidget):
         self.weekdayWrap.setVisible(show_week)
         show_dates = mode == "dates"
         self.datesLabel.setVisible(show_dates)
-        self.datesList.setVisible(show_dates)
-        self.datesBtnWrap.setVisible(show_dates)
+        self.datesCell.setVisible(show_dates)
         self.resize_to_fit()
+        # 可见性刚变化时布局最小值可能有暂态，延迟两拍再收敛一次
+        QTimer.singleShot(0, self.resize_to_fit)
+        QTimer.singleShot(120, self.resize_to_fit)
 
     def weekdays_from_ui(self):
         return [i for i, chk in enumerate(self.weekdayChks) if chk.isChecked()]
