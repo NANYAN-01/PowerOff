@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import locale
+import os
 import subprocess
 from dataclasses import dataclass
 from enum import Enum
@@ -23,6 +24,17 @@ RC_NOT_FOUND = -1
 RC_TIMEOUT = -2
 
 MAX_SYSTEM_TIMEOUT = 315360000
+
+
+def system_command(name: str) -> str:
+    """返回 System32 下系统命令的绝对路径。
+
+    依赖 PATH 查找会在 PATH 被第三方软件破坏、被安全软件改写或
+    精简环境下失败（表现为“找不到系统命令”），绝对路径规避此问题。
+    """
+    root = (os.environ.get("SystemRoot") or os.environ.get("windir")
+            or r"C:\Windows")
+    return os.path.join(root, "System32", name)
 
 
 class PowerAction(Enum):
@@ -104,7 +116,9 @@ class CommandResult:
         if self.returncode == RC_NOTHING_TO_CANCEL:
             return "当前没有计划中的关机任务。"
         if self.returncode == RC_NOT_FOUND:
-            return "找不到系统命令，请确认系统为 Windows。"
+            base = "找不到系统命令，请确认系统为 Windows。"
+            detail = (self.stderr or "").strip()
+            return "{}（{}）".format(base, detail) if detail else base
         if self.returncode == RC_TIMEOUT:
             return "系统命令执行超时。"
         return self.raw_message or f"命令失败，退出码 {self.returncode}"
@@ -119,8 +133,8 @@ def run_command(args: Sequence[str]) -> CommandResult:
             timeout=COMMAND_TIMEOUT,
             creationflags=CREATE_NO_WINDOW,
         )
-    except FileNotFoundError:
-        return CommandResult(tuple(argv), RC_NOT_FOUND, "", "")
+    except FileNotFoundError as exc:
+        return CommandResult(tuple(argv), RC_NOT_FOUND, "", str(exc))
     except subprocess.TimeoutExpired:
         return CommandResult(tuple(argv), RC_TIMEOUT, "", "")
     except OSError as exc:
@@ -143,7 +157,7 @@ def schedule_system(action: PowerAction, seconds: int, force: bool = True) -> Co
     if seconds > MAX_SYSTEM_TIMEOUT:
         raise ValueError("倒计时超出 Windows 允许的上限（10 年）")
     flag = "/s" if action is PowerAction.SHUTDOWN else "/r"
-    args = ["shutdown", flag]
+    args = [system_command("shutdown.exe"), flag]
     if force:
         args.append("/f")
     args += ["/t", str(seconds)]
@@ -152,19 +166,21 @@ def schedule_system(action: PowerAction, seconds: int, force: bool = True) -> Co
 
 def immediate_command(action: PowerAction, force: bool = False) -> list:
     """本地定时器到点时执行的立即命令。"""
+    shutdown = system_command("shutdown.exe")
+    rundll32 = system_command("rundll32.exe")
     if action is PowerAction.SHUTDOWN:
-        return ["shutdown", "/s"] + (["/f"] if force else []) + ["/t", "0"]
+        return [shutdown, "/s"] + (["/f"] if force else []) + ["/t", "0"]
     if action is PowerAction.REBOOT:
-        return ["shutdown", "/r"] + (["/f"] if force else []) + ["/t", "0"]
+        return [shutdown, "/r"] + (["/f"] if force else []) + ["/t", "0"]
     if action is PowerAction.LOGOFF:
         # /l 独立工作，不能与 /f /t 组合（MS 文档），否则 -t 被忽略导致立即注销
-        return ["shutdown", "/l"]
+        return [shutdown, "/l"]
     if action is PowerAction.HIBERNATE:
-        return ["shutdown", "/h"]
+        return [shutdown, "/h"]
     if action is PowerAction.SLEEP:
-        return ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"]
+        return [rundll32, "powrprof.dll,SetSuspendState", "0,1,0"]
     if action is PowerAction.LOCK:
-        return ["rundll32.exe", "user32.dll,LockWorkStation"]
+        return [rundll32, "user32.dll,LockWorkStation"]
     raise ValueError(f"未知动作：{action}")
 
 
@@ -174,7 +190,7 @@ def execute_immediate(action: PowerAction, force: bool = False) -> CommandResult
 
 def cancel() -> CommandResult:
     """取消系统级关机计划（shutdown /a）。"""
-    return run_command(["shutdown", "/a"])
+    return run_command([system_command("shutdown.exe"), "/a"])
 
 
 def hibernation_enabled():

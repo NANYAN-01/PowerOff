@@ -1,33 +1,42 @@
 from unittest.mock import MagicMock, patch
 
+import os
+
 import pytest
 
 from poweroff.core import power
 
 
+def test_system_command_is_absolute_system32():
+    cmd = power.system_command("shutdown.exe")
+    assert os.path.isabs(cmd)
+    assert cmd.lower().endswith(os.path.join("system32", "shutdown.exe").lower())
+
+
 def test_immediate_command_shutdown_force():
     assert power.immediate_command(power.PowerAction.SHUTDOWN, True) == [
-        "shutdown", "/s", "/f", "/t", "0"]
+        power.system_command("shutdown.exe"), "/s", "/f", "/t", "0"]
 
 
 def test_immediate_command_gentle_shutdown_has_no_force():
     assert power.immediate_command(power.PowerAction.SHUTDOWN, False) == [
-        "shutdown", "/s", "/t", "0"]
+        power.system_command("shutdown.exe"), "/s", "/t", "0"]
 
 
 def test_logoff_command_is_standalone():
     """Windows 规定 /l 不能与 /t /f 组合，否则 -t 被忽略导致立即注销。"""
     args = power.immediate_command(power.PowerAction.LOGOFF, True)
-    assert args == ["shutdown", "/l"]
+    assert args == [power.system_command("shutdown.exe"), "/l"]
     assert "/t" not in args and "/f" not in args
 
 
 def test_other_immediate_commands():
-    assert power.immediate_command(power.PowerAction.HIBERNATE) == ["shutdown", "/h"]
+    assert power.immediate_command(
+        power.PowerAction.HIBERNATE) == [power.system_command("shutdown.exe"), "/h"]
     assert power.immediate_command(power.PowerAction.SLEEP) == [
-        "rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"]
+        power.system_command("rundll32.exe"), "powrprof.dll,SetSuspendState", "0,1,0"]
     assert power.immediate_command(power.PowerAction.LOCK) == [
-        "rundll32.exe", "user32.dll,LockWorkStation"]
+        power.system_command("rundll32.exe"), "user32.dll,LockWorkStation"]
 
 
 def test_choose_backend_matrix():
@@ -45,9 +54,11 @@ def test_schedule_system_builds_argv():
     with patch.object(power, "run_command") as run:
         run.return_value = MagicMock()
         power.schedule_system(power.PowerAction.SHUTDOWN, 600, True)
-        assert run.call_args[0][0] == ["shutdown", "/s", "/f", "/t", "600"]
+        assert run.call_args[0][0] == [
+            power.system_command("shutdown.exe"), "/s", "/f", "/t", "600"]
         power.schedule_system(power.PowerAction.REBOOT, 60, False)
-        assert run.call_args[0][0] == ["shutdown", "/r", "/t", "60"]
+        assert run.call_args[0][0] == [
+            power.system_command("shutdown.exe"), "/r", "/t", "60"]
 
 
 @pytest.mark.parametrize("action", [power.PowerAction.LOGOFF, power.PowerAction.SLEEP,
@@ -91,6 +102,17 @@ def test_run_command_missing_binary():
         result = power.run_command(["definitely_not_exists_xyz"])
         assert result.returncode == power.RC_NOT_FOUND
         assert "找不到系统命令" in result.hint
+
+
+def test_missing_binary_hint_includes_detail():
+    """找不到命令时提示要带上真实错误（文件缺失/被安全软件拦截等）。"""
+    with patch.object(power.subprocess, "run",
+                      side_effect=FileNotFoundError(
+                          "[WinError 2] 系统找不到指定的文件")):
+        result = power.run_command([power.system_command("shutdown.exe"), "/s"])
+        assert result.returncode == power.RC_NOT_FOUND
+        assert "找不到系统命令" in result.hint
+        assert "WinError 2" in result.hint
 
 
 def test_run_command_timeout():
